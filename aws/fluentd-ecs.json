@@ -1,0 +1,33 @@
+{
+  "containerDefinitions": [
+    {
+      "name": "fluentd",
+      "image": "dailyhotel/fluentd-for-elasticsearch:latest",
+      "cpu": 10,
+      "memory": 64,
+      "essential": true,
+      "portMappings": [
+        {
+          "hostPort": 24224,
+          "containerPort": 24224,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "ES_HOST",
+          "value": "elasticsearch.dailyhotel.com"
+        },
+        {
+          "name": "ES_PORT",
+          "value": "443"
+        },
+        {
+          "name": "ES_SCHEME",
+          "value": "https"
+        }
+      ]
+    }
+  ],
+  "family": "fluentd-task"
+}

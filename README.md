@@ -104,6 +104,45 @@ aws ecs start-task --cluster $cluster --task-definition $task_def \
   --container-instances $instance_arn --region $region >> /etc/rc.local
 ```
 
+### Kubernetes인 경우
+
+기본적인 과정은 [Datadog-Kubernetes Integration](http://docs.datadoghq.com/integrations/kubernetes/)와 동일하다.
+
+```yaml
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: fluentd
+spec:
+  template:
+    metadata:
+      labels:
+        app: fluentd
+      name: fluentd
+    spec:
+      containers:
+      - image: dailyhotel/fluentd-for-elasticsearch
+        imagePullPolicy: Always
+        name: fluentd
+        ports:
+          - containerPort: 24224
+            name: fluentdport
+            protocol: TCP
+        env:
+          - name: "ES_HOST"
+            value: "elasticsearch.dailyhotel.com"
+          - name: "ES_PORT"
+            value: "443"
+          - name: "ES_SCHEME"
+            value: "https"
+```
+
+위와 같이 `fluentd.yaml` 파일을 생성한 후에 `kubectl`로 `DaemonSet`을 띄우면 된다.
+
+```bash
+kubectl --kubeconfig=./kubeconfig --namespace=kube-system create -f ./fluentd.yaml
+```
+
 ## 애플리케이션 로깅
 
 **콘솔 로그를 사용한다.** 파일 로그는 수집하지 않는다. 그리고 로그를 좀더 세밀하게 남기고 싶다면 [logstash-logback-encoder](https://github.com/logstash/logstash-logback-encoder) 같은 도구를 사용하여 JSON 포맷으로 로그를 남긴다.

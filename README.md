@@ -1,3 +1,5 @@
+[![](https://images.microbadger.com/badges/image/dailyhotel/fluentd-for-elasticsearch.svg)](https://microbadger.com/images/dailyhotel/fluentd-for-elasticsearch "Get your own image badge on microbadger.com")
+
 # Dockerized Fluentd
 
 이 Docker 이미지는 로깅 에이전트인 Fluentd를 포함한다. 주된 역할은
@@ -19,13 +21,7 @@
 ### Standalone Docker daemon인 경우
 
 ```bash
-docker run -v /var/lib/docker:/var/lib/docker -p 24224:24224 --name fluentd dailyhotel/fluentd-for-elasticsearch:latest
-```
-
-이와 같이 Fluentd 컨테이너를 띄운 후, 로그를 수집해야 하는 다른 도커 컨테이너를 띄울 때 [`log-driver`를 `fluentd`로 지정한다.](https://docs.docker.com/engine/admin/logging/fluentd/)
-
-```bash
-docker run --log-driver=fluentd mysql
+docker run -v /var/lib/docker:/var/lib/docker --name fluentd dailyhotel/fluentd-for-elasticsearch:latest
 ```
 
 ### Docker Compose를 쓰는 경우
@@ -39,18 +35,12 @@ services:
       ES_HOST: elasticsearch.dailyhotel.com
       ES_PORT: 443
       ES_SCHEME: https
-    ports:
-      - 24224:24224
     restart: always
 
   mysql:
     image: mysql
     ports:
       - 3306:3306
-    links:
-      - fluentd
-    logging:
-      driver: fluentd
 ```
 
 ### AWS ECS인 경우
@@ -65,13 +55,7 @@ services:
 
 2. ECS 클러스터와 연결된 Auto Scaling Group의 Launch Configuration을 수정한다. User Data를 수정해 Fluentd 도커 컨테이너를 자동실행한다.
 
-    1. 우선 `/etc/ecs/ecs.config` 파일에 다음 항목이 들어가야 한다.
-
-        ```bash
-        ECS_AVAILABLE_LOGGING_DRIVERS=["json-file","syslog","fluentd"]
-        ```
-
-    2. `/etc/rc.local` 에는 다음 항목이 필요하다.
+    1. `/etc/rc.local` 에는 다음 항목이 필요하다.
 
         ```bash
         aws ecs start-task --cluster $cluster --task-definition fluentd-task --container-instances $instance_arn --region $region
@@ -87,7 +71,6 @@ task_def="fluentd-task"
 
 cat <<EOT >> /etc/ecs/ecs.config
 ECS_CLUSTER=$cluster
-ECS_AVAILABLE_LOGGING_DRIVERS=["json-file","syslog","fluentd"]
 EOT
 
 start ecs
@@ -121,20 +104,32 @@ spec:
       name: fluentd
     spec:
       containers:
-      - image: dailyhotel/fluentd-for-elasticsearch
+      - image: dailyhotel/fluentd:latest
         imagePullPolicy: Always
         name: fluentd
-        ports:
-          - containerPort: 24224
-            name: fluentdport
-            protocol: TCP
         env:
-          - name: "ES_HOST"
-            value: "elasticsearch.dailyhotel.com"
-          - name: "ES_PORT"
-            value: "443"
-          - name: "ES_SCHEME"
-            value: "https"
+        - name: "ES_HOST"
+          value: "elasticsearch.dailyhotel.com"
+        - name: "ES_PORT"
+          value: "443"
+        - name: "ES_SCHEME"
+          value: "https"
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      imagePullSecrets:
+      - name: dockerhub
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+
 ```
 
 위와 같이 `fluentd.yaml` 파일을 생성한 후에 `kubectl`로 `DaemonSet`을 띄우면 된다.
@@ -239,7 +234,15 @@ curl -k -XPUT http://elasticsearch.dailyhotel.com/_template/app -d '
 
 ### 파일 로그 수집하기
 
-Fluentd logging driver는 몇 가지 단점이 있다.
+`/var/lib/docker/containers/*/*-json.log` 파일을 수집하는 방법은 몇가지 문제가 있다.
+
+- 해당 로그 파일의 이름이 컨테이너 이름(예, `mybootapp`)이 아닌 해시해시값인 컨테이너 아이디를 포함하므로 제대로 된 정보를 수집하고 파싱하려면 고생 꽤나 해야 한다. [gliderlabs/logspout](https://github.com/gliderlabs) 같은 프로젝트가 있으나 최신 버전에 [exec: "gcc": executable file not found in $PATH status: needs more info](https://github.com/gliderlabs/logspout/issues/223)와 같은 버그가 있어서 커스터마이징하려면 이 역시 고생이다.
+- 잘못하면 Fluentd를 담은 컨테이너 로그까지 수집해서 자기가 자기 자신의 로그를 분석하고 또 그렇게 분석한 내용이 로그로 남아 불필요한 로그를 무한히 쌓는 수가 있다.
+
+
+### Fluentd logging driver
+
+Fluentd logging driver를 사용하면 파일 로그를 수집하는 방식에서 발생하는 문제는 없으나 역시나 몇 가지 단점이 있다.
 
 - 도커 1.8부터 사용가능하며
 - 애플리케이션 도커 이미지의 설정을 바꿔서 Fluentd에 로그를 보내게 해야 한다.
@@ -250,11 +253,6 @@ Fluentd logging driver는 몇 가지 단점이 있다.
   Attaching to ec2user_mybootapp_1
   ERROR: configured logging reader does not support reading
   ```
-
-이는 `/var/lib/docker/containers/*/*-json.log` 파일을 수집하는 방법으로 손쉽게 해결가능하다. 다만 이 방법에도 단점이 있다.
-
-- 해당 로그 파일의 이름이 컨테이너 이름(예, `mybootapp`)이 아닌 해시해시값인 컨테이너 아이디를 포함하므로 제대로 된 정보를 수집하고 파싱하려면 고생 꽤나 해야 한다. [gliderlabs/logspout](https://github.com/gliderlabs) 같은 프로젝트가 있으나 최신 버전에 [exec: "gcc": executable file not found in $PATH status: needs more info](https://github.com/gliderlabs/logspout/issues/223)와 같은 버그가 있어서 커스터마이징하려면 이 역시 고생이다.
-- 잘못하면 Fluentd를 담은 컨테이너 로그까지 수집해서 자기가 자기 자신의 로그를 분석하고 또 그렇게 분석한 내용이 로그로 남아 불필요한 로그를 무한히 쌓는 수가 있다.
 
 ### Filebeat
 

@@ -180,40 +180,38 @@ JSON 형태의 애플리케이션 로그는 별도의 처리를 하지 않으면
 검색 템플릿은 아래와 같이 구현했으나 향후 튜닝의 여지가 많다.
 
 ```bash
-curl -k -XPUT http://elasticsearch.dailyhotel.com/_template/app -d '
+curl -k -XPUT http://dev-elasticsearch.dailyhotel.me/_template/app -d '
 {
-"template": "app*",
-"settings": {
-"index" : {
-    "refresh_interval": "5s",
-            "number_of_replicas" : 0
-}
-  },
-"mappings": {
-"_default_": {
-            "dynamic_templates": [
-                {
-                    "template1": {
-                        "mapping": {
-                            "ignore_above": 1024,
-                            "index": "not_analyzed",
-                            "type": "{dynamic_type}",
-                            "doc_values": true
-                        },
-                        "match": "*"
+    "template": "app*",
+    "settings": {
+        "index": {
+            "refresh_interval": "5s",
+            "number_of_replicas": 0
+        }
+    },
+    "mappings": {
+        "_default_": {
+            "dynamic_templates": [{
+                "template1": {
+                    "mapping": {
+                        "ignore_above": 1024,
+                        "index": "not_analyzed",
+                        "type": "{dynamic_type}",
+                        "doc_values": true
+                    },
+                    "match": "*"
                 }
-            }
-            ],
+            }],
             "_all": {
                 "norms": {
-                "enabled": false
+                    "enabled": false
                 },
                 "enabled": true
             },
             "properties": {
                 "@timestamp": {
                     "type": "date",
-                    "format" : "date_time"
+                    "format": "date_time"
                 },
                 "offset": {
                     "type": "long",
@@ -222,9 +220,10 @@ curl -k -XPUT http://elasticsearch.dailyhotel.com/_template/app -d '
                 "message": {
                     "index": "analyzed",
                     "type": "string"
-                              }
+                }
+            }
         }
-  }
+    }
 }
 '
 ```
